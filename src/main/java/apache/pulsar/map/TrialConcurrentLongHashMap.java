@@ -1,5 +1,5 @@
 /**
- * Copyright 2025 Minjian Cai
+ * Copyright 2026 Minjian Cai
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -19,7 +19,6 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 import com.google.common.collect.Lists;
-import com.google.common.hash.Hashing;
 import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
@@ -674,9 +673,9 @@ public class TrialConcurrentLongHashMap<V> {
   private static final int R = 47;
 
   static final int hash(final long key) {
-      long h = key * 0x9E3779B97F4A7C15L;
-      h ^= h >>> 32;
-      return (int) (h ^ (h >>> 16));
+    long h = key * 0x9E3779B97F4A7C15L;
+    h ^= h >>> 32;
+    return (int) (h ^ (h >>> 16));
   }
 
   static final int signSafeMod(long n, int max) {
