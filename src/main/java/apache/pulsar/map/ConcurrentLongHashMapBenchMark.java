@@ -36,8 +36,8 @@ import org.openjdk.jmh.infra.Blackhole;
 
 @BenchmarkMode(Mode.Throughput)
 @State(Scope.Benchmark)
-@Warmup(iterations = 3, time = 500, timeUnit = TimeUnit.MILLISECONDS)
-@Measurement(iterations = 5, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
+@Warmup(iterations = 2, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
+@Measurement(iterations = 6, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
 @Threads(8)
 @Fork(1)
 public class ConcurrentLongHashMapBenchMark {
@@ -47,7 +47,7 @@ public class ConcurrentLongHashMapBenchMark {
   @Param({"1024"})
   private int initialCapacity;
 
-  @Param({"4", "16"})
+  @Param({"16"})
   private int concurrencyLevel;
 
   @Param({"1000", "10000", "100000"})

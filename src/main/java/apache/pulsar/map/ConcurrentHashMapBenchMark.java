@@ -16,9 +16,11 @@
 package apache.pulsar.map;
 
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.jctools.maps.NonBlockingHashMapLong;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
 import org.openjdk.jmh.annotations.Fork;
@@ -36,8 +38,8 @@ import org.openjdk.jmh.infra.Blackhole;
 
 @BenchmarkMode(Mode.Throughput)
 @State(Scope.Benchmark)
-@Warmup(iterations = 5, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
-@Measurement(iterations = 10, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
+@Warmup(iterations = 2, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
+@Measurement(iterations = 6, time = 1000, timeUnit = TimeUnit.MILLISECONDS)
 @Threads(8)
 @Fork(1)
 public class ConcurrentHashMapBenchMark {
@@ -47,16 +49,16 @@ public class ConcurrentHashMapBenchMark {
   @Param({"1024"})
   private int initialCapacity;
 
-  @Param({"4", "16"})
+  @Param({"16"})
   private int concurrencyLevel;
 
   @Param({"1000", "10000", "100000"})
   private int initialSize;
 
-  @Param({"ConcurrentHashMap"})
+  @Param({"ConcurrentHashMap", "NonBlockingHashMapLong"})
   private String type;
 
-  private ConcurrentHashMap<Long, Object> map;
+  private ConcurrentMap<Long, Object> map;
 
   private AtomicLong keyGenerator;
 
@@ -66,6 +68,8 @@ public class ConcurrentHashMapBenchMark {
       case "ConcurrentHashMap":
         map = new ConcurrentHashMap<>(initialCapacity, 0.75f, concurrencyLevel);
         break;
+      case "NonBlockingHashMapLong":
+        map = new NonBlockingHashMapLong<>(initialCapacity);
     }
 
     // Pre-populate maps with data
