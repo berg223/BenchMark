@@ -16,10 +16,10 @@
 package apache.pulsar.map;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
+import org.apache.pulsar.common.util.collections.ConcurrentLongHashMap;
 import org.jctools.maps.NonBlockingHashMapLong;
 import org.openjdk.jmh.annotations.Benchmark;
 import org.openjdk.jmh.annotations.BenchmarkMode;
@@ -31,10 +31,14 @@ import org.openjdk.jmh.annotations.Param;
 import org.openjdk.jmh.annotations.Scope;
 import org.openjdk.jmh.annotations.Setup;
 import org.openjdk.jmh.annotations.State;
-import org.openjdk.jmh.annotations.TearDown;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.Warmup;
 import org.openjdk.jmh.infra.Blackhole;
+import org.openjdk.jmh.results.format.ResultFormatType;
+import org.openjdk.jmh.runner.Runner;
+import org.openjdk.jmh.runner.RunnerException;
+import org.openjdk.jmh.runner.options.Options;
+import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 @BenchmarkMode(Mode.Throughput)
 @State(Scope.Benchmark)
@@ -46,82 +50,74 @@ public class ConcurrentHashMapBenchMark {
 
   private static final Object VALUE = new Object();
 
-  @Param({"1024"})
-  private int initialCapacity;
+  private int initialCapacity = 1024;
 
-  @Param({"16"})
-  private int concurrencyLevel;
+  private int concurrencyLevel = 16;
 
   @Param({"1000", "10000", "100000"})
   private int initialSize;
 
-  @Param({"ConcurrentHashMap", "NonBlockingHashMapLong"})
+  @Param({
+    "ConcurrentHashMap",
+    "NonBlockingHashMapLong",
+    "ConcurrentLongHashMap",
+    "TrialConcurrentLongHashMap"
+  })
   private String type;
 
-  private ConcurrentMap<Long, Object> map;
+  private MapAccessor mapAccessor;
 
   private AtomicLong keyGenerator;
 
   @Setup(Level.Iteration)
   public void setup() {
-    switch (type) {
-      case "ConcurrentHashMap":
-        map = new ConcurrentHashMap<>(initialCapacity, 0.75f, concurrencyLevel);
-        break;
-      case "NonBlockingHashMapLong":
-        map = new NonBlockingHashMapLong<>(initialCapacity);
-    }
+    mapAccessor = createMapAccessor();
 
     // Pre-populate maps with data
     for (int i = 0; i < initialSize; i++) {
       long key = ThreadLocalRandom.current().nextLong();
-      map.put(key, VALUE);
+      mapAccessor.put(key, VALUE);
     }
 
     keyGenerator = new AtomicLong(initialSize);
   }
 
-  @TearDown(Level.Iteration)
-  public void tearDown() {
-    map.clear();
-  }
-
   @Benchmark
   public void getPresent(Blackhole blackhole) {
     long key = ThreadLocalRandom.current().nextLong(Math.max(keyGenerator.get(), 1));
-    blackhole.consume(map.get(key));
+    blackhole.consume(mapAccessor.get(key));
   }
 
   @Benchmark
   public void getAbsent(Blackhole blackhole) {
     long key =
         ThreadLocalRandom.current().nextLong(Math.max(keyGenerator.get(), 1)) + keyGenerator.get();
-    blackhole.consume(map.get(key));
+    blackhole.consume(mapAccessor.get(key));
   }
 
   @Benchmark
   public void putAbsent() {
     long key = keyGenerator.getAndIncrement();
-    map.put(key, VALUE);
+    mapAccessor.put(key, VALUE);
   }
 
   @Benchmark
   public void putPresent() {
     long key = ThreadLocalRandom.current().nextLong(Math.max(keyGenerator.get(), 1));
-    map.put(key, VALUE);
+    mapAccessor.put(key, VALUE);
   }
 
   @Benchmark
   public void removePresent() {
     long key = ThreadLocalRandom.current().nextLong(Math.max(keyGenerator.get(), 1));
-    map.remove(key);
+    mapAccessor.remove(key);
   }
 
   @Benchmark
   public void removeAbsent() {
     long key =
         ThreadLocalRandom.current().nextLong(Math.max(keyGenerator.get(), 1)) + keyGenerator.get();
-    map.remove(key);
+    mapAccessor.remove(key);
   }
 
   @Benchmark
@@ -131,11 +127,112 @@ public class ConcurrentHashMapBenchMark {
     long operationType = key % 5; // 0-4
     if (operationType == 0) {
       // 20% write
-      map.put(key, VALUE);
+      mapAccessor.put(key, VALUE);
     } else {
       // 80% read
-      Object value = map.get(key);
+      Object value = mapAccessor.get(key);
       blackhole.consume(value);
     }
+  }
+
+  private MapAccessor createMapAccessor() {
+    return switch (type) {
+      case "ConcurrentHashMap" -> {
+        var concurrentHashMap = new ConcurrentHashMap<>(initialCapacity, 0.75f, concurrencyLevel);
+        yield new MapAccessor() {
+          public void put(long key, Object v) {
+            concurrentHashMap.put(key, v);
+          }
+
+          public Object get(long key) {
+            return concurrentHashMap.get(key);
+          }
+
+          public void remove(long key) {
+            concurrentHashMap.remove(key);
+          }
+        };
+      }
+
+      case "NonBlockingHashMapLong" -> {
+        var nonBlockingHashMapLong = new NonBlockingHashMapLong<>(initialCapacity);
+        yield new MapAccessor() {
+          public void put(long key, Object v) {
+            nonBlockingHashMapLong.put(key, v);
+          }
+
+          public Object get(long key) {
+            return nonBlockingHashMapLong.get(key);
+          }
+
+          public void remove(long key) {
+            nonBlockingHashMapLong.remove(key);
+          }
+        };
+      }
+      case "ConcurrentLongHashMap" -> {
+        var concurrentLongHashMap =
+            new ConcurrentLongHashMap.Builder<>()
+                .expectedItems(initialCapacity)
+                .concurrencyLevel(concurrencyLevel)
+                .expandFactor(2)
+                .mapFillFactor(0.66f)
+                .mapIdleFactor(0.25f)
+                .shrinkFactor(2.0f)
+                .autoShrink(true)
+                .build();
+        yield new MapAccessor() {
+          public void put(long key, Object v) {
+            concurrentLongHashMap.put(key, v);
+          }
+
+          public Object get(long key) {
+            return concurrentLongHashMap.get(key);
+          }
+
+          public void remove(long key) {
+            concurrentLongHashMap.remove(key);
+          }
+        };
+      }
+      case "TrialConcurrentLongHashMap" -> {
+        var trialConcurrentLongHashMap =
+            new TrialConcurrentLongHashMap.Builder<>()
+                .expectedItems(initialCapacity)
+                .concurrencyLevel(concurrencyLevel)
+                .expandFactor(2)
+                .mapFillFactor(0.66f)
+                .mapIdleFactor(0.25f)
+                .shrinkFactor(2.0f)
+                .autoShrink(true)
+                .build();
+        yield new MapAccessor() {
+          public void put(long key, Object v) {
+            trialConcurrentLongHashMap.put(key, v);
+          }
+
+          public Object get(long key) {
+            return trialConcurrentLongHashMap.get(key);
+          }
+
+          public void remove(long key) {
+            trialConcurrentLongHashMap.remove(key);
+          }
+        };
+      }
+      default -> throw new IllegalArgumentException("Invalid map type: " + type);
+    };
+  }
+
+  public static void main(String[] args) throws RunnerException {
+    Options opt =
+        new OptionsBuilder()
+            .addProfiler("gc")
+            .include(ConcurrentHashMapBenchMark.class.getSimpleName())
+            .shouldFailOnError(true)
+            .result("benchmark-concurrent-hashmap.json")
+            .resultFormat(ResultFormatType.JSON)
+            .build();
+    new Runner(opt).run();
   }
 }
